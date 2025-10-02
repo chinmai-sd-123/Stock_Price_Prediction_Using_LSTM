@@ -1,7 +1,8 @@
 # 📈 Stock Price Prediction using LSTM
 
 A Streamlit app for predicting stock prices with **LSTM (Long Short-Term Memory)** networks.
-
+## 🌐 Live Demo
+Try the app here: [Stock Price Prediction App](https://stock-price-predict-ai.streamlit.app/)
 ## 🚀 Features
 - Upload CSV dataset (with Date + stock columns).
 - Choose input features (multivariate supported).
