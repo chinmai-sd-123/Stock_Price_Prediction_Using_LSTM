@@ -31,7 +31,7 @@ st.title("📈 Stock Price Prediction with LSTM (7-Day Forecast)")
 
 
 # --- File Upload ---
-uploaded_file = st.file_uploader("📂 Upload your stock dataset (CSV format)", type="csv")
+uploaded_file = st.file_uploader("Upload your stock dataset (CSV format)", type="csv")
 
 if uploaded_file:
 
@@ -45,8 +45,25 @@ if uploaded_file:
     if "Date" in df.columns:
         df['Date'] = pd.to_datetime(df['Date'])
 
+    # --- Dataset Preview Section ---
     st.subheader("📊 Dataset Preview")
-    st.dataframe(df.head())
+
+    # If a Date column exists, set it as the index
+    if "Date" in df.columns:
+        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')  # ensure datetime
+        df.set_index("Date", inplace=True)
+
+    # Slider for controlling number of rows to preview
+    rows_to_show = st.slider(
+        "Select number of rows to preview",
+        min_value=5,
+        max_value=len(df),
+        value=min(20, len(df)),
+        step=5
+    )
+
+    st.dataframe(df.head(rows_to_show))
+    st.caption(f"Showing first {rows_to_show} rows out of {len(df)} total rows.")
 
     # --- Feature & Target Selection ---
     feature_cols = st.multiselect(
@@ -61,7 +78,7 @@ if uploaded_file:
         feature_cols.append(target_col)
 
     if not feature_cols:
-        st.error("⚠️ Please select at least one feature column.")
+        st.error("Please select at least one feature column.")
         st.stop()
 
     data = df[feature_cols].values
@@ -69,7 +86,7 @@ if uploaded_file:
     target_index = feature_cols.index(target_col)
 
     # --- Hyperparameters (sidebar) ---
-    st.sidebar.header("⚙️ Model Configuration")
+    st.sidebar.header("Model Configuration")
     SEQ_LEN = st.sidebar.slider("Sequence Length (days)", 10, 100, 30, step=5)
     EPOCHS = st.sidebar.slider("Training Epochs", 5, 100, 25, step=5)
     BATCH_SIZE = st.sidebar.selectbox("Batch Size", [8, 16, 32, 64], index=1)
@@ -124,7 +141,7 @@ if uploaded_file:
     )
 
     # --- Plot Training History ---
-    st.subheader("📉 Training History")
+    st.subheader("Training History")
     fig_hist, ax = plt.subplots(figsize=(8, 4))
     ax.plot(history.history["loss"], label="Training Loss")
     ax.plot(history.history["val_loss"], label="Validation Loss")
@@ -153,13 +170,13 @@ if uploaded_file:
     mape = mean_absolute_percentage_error(actual_test, pred_test) * 100
     mae = mean_absolute_error(actual_test, pred_test)
 
-    st.subheader("📊 Evaluation Metrics")
+    st.subheader("Evaluation Metrics")
     st.write(f"- **RMSE:** {rmse:.2f}")
     st.write(f"- **MAPE:** {mape:.2f}%")
     st.write(f"- **MAE:** {mae:.2f}")
 
     # --- Plot Predictions ---
-    st.subheader("📈 Actual vs Predicted (Test Set)")
+    st.subheader("Actual vs Predicted (Test Set)")
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.plot(actual_test, label="Actual")
     ax.plot(pred_test, label="Predicted")
@@ -170,7 +187,7 @@ if uploaded_file:
     st.pyplot(fig)
 
     # --- 7-Day Forecast ---
-    st.subheader(f"🔮 7-Day Forecast for {target_col}")
+    st.subheader(f"7-Day Forecast for {target_col}")
 
     last_seq = scaled[-SEQ_LEN:].copy()
     forecast_scaled = []
@@ -202,7 +219,7 @@ if uploaded_file:
     ax.legend()
     st.pyplot(fig_future)
 
-    st.success(f"📈 Forecasted 7-Day Prices: {np.round(forecast_prices, 2)}")
+    st.success(f"Forecasted 7-Day Prices: {np.round(forecast_prices, 2)}")
 
     # --- Export Results ---
     results_df = pd.DataFrame({
@@ -219,7 +236,7 @@ if uploaded_file:
     csv_buffer = BytesIO()
     combined_df.to_csv(csv_buffer, index=False)
     st.download_button(
-        label="📥 Download Predictions + 7-Day Forecast (CSV)",
+        label="Download Predictions + 7-Day Forecast (CSV)",
         data=csv_buffer.getvalue(),
         file_name=f"{target_col}_predictions_7day_forecast.csv",
         mime="text/csv"
