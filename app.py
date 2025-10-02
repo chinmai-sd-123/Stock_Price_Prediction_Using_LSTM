@@ -46,7 +46,7 @@ if uploaded_file:
         df['Date'] = pd.to_datetime(df['Date'])
 
     # --- Dataset Preview Section ---
-    st.subheader("📊 Dataset Preview")
+    st.subheader("Dataset Preview")
 
     # If a Date column exists, set it as the index
     if "Date" in df.columns:
