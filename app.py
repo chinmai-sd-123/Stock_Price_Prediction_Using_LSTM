@@ -2,10 +2,10 @@
 Stock Price Prediction App (Streamlit + LSTM)
 
 Features:
-- Supports univariate & multivariate input
+- Univariate input (single column prediction)
 - Train/Validation/Test split for evaluation
 - Shows training history and test predictions
-- Provides a fixed 7-day forecast (continuous with test data)
+- Provides a fixed 7-day forecast (labeled as Day+1 … Day+7)
 - Exports predictions + forecast as CSV
 """
 
@@ -31,29 +31,22 @@ st.title("📈 Stock Price Prediction with LSTM (7-Day Forecast)")
 
 
 # --- File Upload ---
-uploaded_file = st.file_uploader("Upload your stock dataset (CSV format)", type="csv")
+uploaded_file = st.file_uploader("Upload your dataset (CSV format)", type="csv")
 
 if uploaded_file:
-
     # --- Load Dataset ---
     df = pd.read_csv(uploaded_file)
 
-    # Clean up column names
+    # Clean up columns
     if 'Unnamed: 0' in df.columns:
         df.rename(columns={'Unnamed: 0': 'Date'}, inplace=True)
 
     if "Date" in df.columns:
-        df['Date'] = pd.to_datetime(df['Date'])
-
-    # --- Dataset Preview Section ---
-    st.subheader("Dataset Preview")
-
-    # If a Date column exists, set it as the index
-    if "Date" in df.columns:
-        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')  # ensure datetime
+        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         df.set_index("Date", inplace=True)
 
-    # Slider for controlling number of rows to preview
+    # --- Dataset Preview ---
+    st.subheader("Dataset Preview")
     rows_to_show = st.slider(
         "Select number of rows to preview",
         min_value=5,
@@ -61,48 +54,41 @@ if uploaded_file:
         value=min(20, len(df)),
         step=5
     )
-
     st.dataframe(df.head(rows_to_show))
     st.caption(f"Showing first {rows_to_show} rows out of {len(df)} total rows.")
 
-    # --- Feature & Target Selection ---
-    feature_cols = st.multiselect(
-        "Select input features (X)",
-        df.columns[1:],
-        default=[df.columns[1]]
-    )
-    target_col = st.selectbox("Select target column (y)", df.columns[1:])
-
-    # Always include target in features
-    if target_col not in feature_cols:
-        feature_cols.append(target_col)
-
-    if not feature_cols:
-        st.error("Please select at least one feature column.")
+    # --- Target Selection (Single Column Only) ---
+    numeric_cols = df.select_dtypes(include=["float64", "int64"]).columns.tolist()
+    if not numeric_cols:
+        st.error("No numeric columns found for prediction.")
         st.stop()
 
-    data = df[feature_cols].values
-    n_features = len(feature_cols)
-    target_index = feature_cols.index(target_col)
+    target_col = st.selectbox("Select column to predict", numeric_cols)
+    data = df[[target_col]].values
+    n_features = 1  # univariate
 
-    # --- Hyperparameters (sidebar) ---
-    st.sidebar.header("Model Configuration")
+    # --- Hyperparameters ---
+    st.sidebar.header("⚙️ Model Configuration")
     SEQ_LEN = st.sidebar.slider("Sequence Length (days)", 10, 100, 30, step=5)
     EPOCHS = st.sidebar.slider("Training Epochs", 5, 100, 25, step=5)
     BATCH_SIZE = st.sidebar.selectbox("Batch Size", [8, 16, 32, 64], index=1)
-    FUTURE_DAYS = 7   # fixed forecast horizon
+    FUTURE_DAYS = 7  # fixed forecast horizon
 
     # --- Data Preprocessing ---
     scaler = MinMaxScaler()
     scaled = scaler.fit_transform(data)
 
     def create_sequences(dataset, seq_len=SEQ_LEN):
-        """Generate input/output sequences for LSTM."""
+        """Generate sequences for LSTM."""
         X, y = [], []
         for i in range(seq_len, len(dataset)):
             X.append(dataset[i - seq_len:i])
-            y.append(dataset[i, target_index])
+            y.append(dataset[i, 0])
         return np.array(X), np.array(y)
+
+    if len(scaled) <= SEQ_LEN:
+        st.error("Dataset too small for selected sequence length.")
+        st.stop()
 
     X_all, y_all = create_sequences(scaled)
 
@@ -140,7 +126,7 @@ if uploaded_file:
         verbose=0
     )
 
-    # --- Plot Training History ---
+    # --- Training History Plot ---
     st.subheader("Training History")
     fig_hist, ax = plt.subplots(figsize=(8, 4))
     ax.plot(history.history["loss"], label="Training Loss")
@@ -153,17 +139,8 @@ if uploaded_file:
 
     # --- Predictions on Test Set ---
     pred_test = model.predict(test_X)
-
-    def invert_scaling(scaled_vals, scaler, feature_index):
-        """Convert scaled values back to original price scale."""
-        scaled_vals = np.array(scaled_vals).reshape(-1, 1)
-        filler = np.zeros((scaled_vals.shape[0], scaler.scale_.shape[0]))
-        filler[:, feature_index] = scaled_vals.flatten()
-        inv = scaler.inverse_transform(filler)
-        return inv[:, feature_index]
-
-    pred_test = invert_scaling(pred_test, scaler, target_index)
-    actual_test = invert_scaling(test_y, scaler, target_index)
+    pred_test = scaler.inverse_transform(pred_test)
+    actual_test = scaler.inverse_transform(test_y.reshape(-1, 1))
 
     # --- Evaluation Metrics ---
     rmse = np.sqrt(mean_squared_error(actual_test, pred_test))
@@ -171,9 +148,9 @@ if uploaded_file:
     mae = mean_absolute_error(actual_test, pred_test)
 
     st.subheader("Evaluation Metrics")
-    st.write(f"- **RMSE:** {rmse:.2f}")
-    st.write(f"- **MAPE:** {mape:.2f}%")
-    st.write(f"- **MAE:** {mae:.2f}")
+    st.write(f"- RMSE: **{rmse:.2f}**")
+    st.write(f"- MAPE: **{mape:.2f}%**")
+    st.write(f"- MAE: **{mae:.2f}**")
 
     # --- Plot Predictions ---
     st.subheader("Actual vs Predicted (Test Set)")
@@ -195,42 +172,49 @@ if uploaded_file:
     for _ in range(FUTURE_DAYS):
         next_pred = model.predict(last_seq.reshape(1, SEQ_LEN, n_features))[0, 0]
         forecast_scaled.append(next_pred)
-
-        # Update rolling window with predicted value
-        new_entry = np.zeros((1, n_features))
-        new_entry[0, target_index] = next_pred
+        new_entry = np.array([[next_pred]])
         last_seq = np.vstack([last_seq[1:], new_entry])
 
-    forecast_prices = invert_scaling(forecast_scaled, scaler, target_index)
+    forecast_prices = scaler.inverse_transform(np.array(forecast_scaled).reshape(-1, 1))
 
-    # Plot Forecast continuous with last test values
-    fig_future, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(range(len(actual_test)), actual_test, label="Actual (Test)")
-    ax.plot(range(len(pred_test)), pred_test, label="Predicted (Test)")
+    # --- Forecast Plot ---
+    fig_future, ax = plt.subplots(figsize=(12, 6))
+    ax.plot(range(len(actual_test)), actual_test, label="Actual (Test)", color="blue")
+    ax.plot(range(len(pred_test)), pred_test, label="Predicted (Test)", color="orange")
+
+    # Forecast as Day+N
+    forecast_x = [f"Day+{i+1}" for i in range(FUTURE_DAYS)]
     ax.plot(
         range(len(pred_test), len(pred_test) + FUTURE_DAYS),
         forecast_prices,
-        marker="o",
-        label="7-Day Forecast"
+        "o--",
+        color="green",
+        label="7-Day Forecast",
+        linewidth=2,
+        markersize=8
     )
-    ax.set_title(f"{target_col} - Test Predictions + 7-Day Forecast")
-    ax.set_xlabel("Time Steps")
+    ax.axvspan(len(pred_test)-1, len(pred_test) + FUTURE_DAYS, color="green", alpha=0.1)
+
+    ax.set_title(f"{target_col} - Test Predictions + 7-Day Forecast", fontsize=14, weight="bold")
+    ax.set_xlabel("Timeline")
     ax.set_ylabel("Price")
     ax.legend()
     st.pyplot(fig_future)
 
-    st.success(f"Forecasted 7-Day Prices: {np.round(forecast_prices, 2)}")
+    # --- Forecast Table ---
+    forecast_df = pd.DataFrame({
+        "Day": forecast_x,
+        "Forecasted Price": np.round(forecast_prices.flatten(), 2)
+    })
+
+    st.subheader("Forecasted Values")
+    st.dataframe(forecast_df, use_container_width=True, hide_index=True)
 
     # --- Export Results ---
     results_df = pd.DataFrame({
         "Actual": actual_test.flatten(),
         "Predicted": pred_test.flatten()
     })
-    forecast_df = pd.DataFrame({
-        "Day": [f"Day+{i+1}" for i in range(FUTURE_DAYS)],
-        "Forecast": forecast_prices.flatten()
-    })
-
     combined_df = pd.concat([results_df, forecast_df], axis=1)
 
     csv_buffer = BytesIO()
