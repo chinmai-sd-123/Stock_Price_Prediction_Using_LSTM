@@ -68,7 +68,7 @@ if uploaded_file:
     n_features = 1  # univariate
 
     # --- Hyperparameters ---
-    st.sidebar.header("⚙️ Model Configuration")
+    st.sidebar.header("Model Configuration")
     SEQ_LEN = st.sidebar.slider("Sequence Length (days)", 10, 100, 30, step=5)
     EPOCHS = st.sidebar.slider("Training Epochs", 5, 100, 25, step=5)
     BATCH_SIZE = st.sidebar.selectbox("Batch Size", [8, 16, 32, 64], index=1)
